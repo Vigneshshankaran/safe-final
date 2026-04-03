@@ -1,0 +1,763 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SAFE Calculator | EquityList</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      .card-title-group p {
+        font-size: 15px !important;
+      }
+      .investors-header h3 {
+        font-size: 1rem;
+        font-weight: 500;
+        margin: 0;
+        color: #0d0a40;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.5rem;
+        font-family: inter !important;
+      }
+
+      .card-title-group h2 {
+        color: var(--primary-navy) !important;
+        font-weight: 500 !important;
+        letter-spacing: -0.01em !important;
+        font-family: inter !important;
+        font-size: 0.9375rem !important;
+        line-height: 1.6 !important;
+        font-size: 1.25rem !important;
+      }
+      .checkbox-label {
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        cursor: pointer !important;
+        font-size: 13px !important;
+        font-weight: 400 !important;
+        color: #444266 !important;
+      }
+
+      .field-label {
+        margin-top: 0px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="global-error-container" class="error-container"></div>
+
+    <div class="layout-controls">
+      <button class="btn btn-secondary btn-reset" onclick="resetCalculator()">
+        <svg
+          class="btn-icon-1"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+          <path d="M3 3v5h5"></path>
+        </svg>
+        Reset
+      </button>
+    </div>
+
+    <main class="split-layout-wrapper">
+      <div class="calculator-column">
+        <div class="calculator-shell">
+          <section id="cap-table-section">
+            <div class="card-header">
+              <div class="card-title-group">
+                <h2>Current cap table</h2>
+                <p>
+                  Enter all issued shares, including those held by founders,
+                  employees, and any existing option pools.
+                </p>
+              </div>
+              <button class="btn btn-primary" onclick="addRow('common')">
+                <svg class="btn-icon-1"><use href="#icon-plus"></use></svg>
+                Add
+              </button>
+            </div>
+            <div id="shareholders-body"></div>
+            <div id="cap-table-footer"></div>
+          </section>
+
+          <section id="safes-section">
+            <div class="card-header">
+              <div class="card-title-group">
+                <h2>SAFE terms</h2>
+                <p>
+                  SAFEs must be entered in the order raised. MFN
+                  <span class="tooltip-trigger tooltip-compact">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <line x1="12" y1="16" x2="12" y2="12"></line>
+                      <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                    </svg>
+                    <span class="tooltip-content"
+                      >This SAFE adopts improved terms from subsequent
+                      SAFEs.</span
+                    >
+                  </span>
+                  applies forward only.
+                </p>
+              </div>
+              <button class="btn btn-primary" onclick="addRow('safe')">
+                <svg class="btn-icon-1"><use href="#icon-plus"></use></svg>
+                Add
+              </button>
+            </div>
+            <div id="safes-container">
+              <div id="safes-body"></div>
+            </div>
+          </section>
+
+          <section id="priced-round-section">
+            <div class="card-header">
+              <div class="card-title-group">
+                <h2>Priced round configuration</h2>
+                <p>
+                  These terms determine how SAFEs convert and how new shares are
+                  issued.
+                </p>
+              </div>
+            </div>
+            <div class="config-card">
+              <label class="field-label">Pre-money valuation</label>
+              <div class="input-with-symbol valuation-input-wrapper">
+                <span class="input-symbol">$</span>
+                <input
+                  class="input valuation-main-input"
+                  type="text"
+                  id="pre-money-input"
+                  value="0"
+                  oninput="formatInputLive(this)"
+                  onchange="updateGlobal('preMoney', this.value)"
+                />
+              </div>
+              <div
+                id="pre-money-error"
+                class="input-error-msg"
+                style="display: none"
+              ></div>
+              <div class="valuation-subtext">
+                Post-money valuation:
+                <strong id="post-money-val-display">$0</strong>
+              </div>
+            </div>
+            <div class="option-pool-card">
+              <div class="flex-between items-start">
+                <div>
+                  <label class="field-label mb-0">Target option pool</label>
+                  <p class="helper-text">
+                    Enter your post-round target option pool
+                  </p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <div class="option-pool-input-wrapper">
+                    <input
+                      class="input option-pool-main-input"
+                      type="text"
+                      id="target-options-input"
+                      value=""
+                      oninput="formatInputLive(this)"
+                      onchange="updateGlobal('targetOptionsPool', this.value)"
+                    />
+                  </div>
+                  <span class="option-pool-suffix">%</span>
+                </div>
+              </div>
+              <p
+                id="additional-options-val-text"
+                class="additional-shares-note"
+              >
+                +0 shares will be added to reach the target
+              </p>
+              <p
+                id="option-pool-meets-target-note"
+                class="additional-shares-note"
+                style="display: none; margin-top: 4px; color: #64748b"
+              >
+                Note: The post-round option pool already meets the target.
+              </p>
+            </div>
+            <div class="input-group mb-24">
+              <label class="field-label">Round name</label>
+              <input
+                class="input"
+                id="round-name-input"
+                value="Series A"
+                onchange="updateGlobal('roundName', this.value)"
+              />
+            </div>
+            <div class="investors-header">
+              <h3>Round investors</h3>
+              <button class="btn btn-primary" onclick="addRow('series')">
+                <svg class="btn-icon-1"><use href="#icon-plus"></use></svg>
+                Add
+              </button>
+            </div>
+            <div id="series-container">
+              <div class="investors-table-header">
+                <div class="flex-2">Investor</div>
+                <div class="flex-1">Investment</div>
+              </div>
+              <div id="series-body"></div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <div class="results-column">
+        <section id="results-card">
+          <div class="results-layout">
+            <div class="flex justify-end mb-4 no-pdf">
+              <div class="export-actions-mini">
+                <button
+                  class="btn-mini-export primary"
+                  onclick="showEmailModal('download')"
+                >
+                  Download report
+                </button>
+                <button
+                  class="btn-mini-export secondary"
+                  onclick="showEmailModal('email')"
+                >
+                  Email report
+                </button>
+              </div>
+            </div>
+            <p class="mb-4 text-muted disclosure-note">
+              Note: All “before <span class="display-round-name"></span>” and
+              “after <span class="display-round-name"></span>” figures assume
+              all SAFEs have converted. If there are no SAFEs, the figures
+              reflect the cap table before the priced round.
+            </p>
+            <div class="founder-outcome-label mb-4">
+              Impact of
+              <span class="display-round-name"></span>
+              on founder(s)
+            </div>
+            <div class="main-stats-grid">
+              <div class="stat-large">
+                <span id="founder-ownership-val" class="stat-value purple"
+                  >0.00%</span
+                >
+                <span class="stat-label"
+                  >Ownership after <span class="display-round-name"></span
+                ></span>
+              </div>
+              <div class="stat-large">
+                <span id="founder-dilution-val" class="stat-value grey"
+                  >0.00%</span
+                >
+                <span class="stat-label"
+                  >Founder dilution from <span class="display-round-name"></span
+                  ><span class="tooltip-trigger">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <line x1="12" y1="16" x2="12" y2="12"></line>
+                      <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                    </svg>
+                    <span class="tooltip-content"
+                      >Shows dilution relative to ownership after SAFE
+                      conversion, before the priced round (including any option
+                      pool top-up).</span
+                    >
+                  </span>
+                </span>
+              </div>
+            </div>
+
+            <div class="secondary-stats-row">
+              <div class="stat-small">
+                <span class="stat-label-caps">Post-money</span>
+                <span id="post-money-val" class="stat-value-small">$0</span>
+              </div>
+              <div class="stat-small border-left">
+                <span class="stat-label-caps">Price per share (PPS)</span>
+                <span id="round-pps-val" class="stat-value-small">$0.000</span>
+              </div>
+              <div class="stat-small border-left">
+                <span class="stat-label-caps">Total shares post-round</span>
+                <span id="total-post-shares-val" class="stat-value-small"
+                  >0</span
+                >
+              </div>
+            </div>
+          </div>
+
+          <div class="results-charts-row">
+            <div class="chart-column">
+              <div class="chart-title">
+                Ownership split after <span class="display-round-name"></span>
+              </div>
+              <div id="pie-chart-container" class="donut-container"></div>
+            </div>
+            <div class="chart-column">
+              <div class="chart-title">
+                Founder ownership before vs after
+                <span class="display-round-name"></span>
+              </div>
+              <div id="bar-chart-container" class="bar-chart-container"></div>
+            </div>
+          </div>
+        </section>
+        <section id="ai-advisor-section">
+          <div class="ai-insights-box">
+            <div class="ai-header-group">
+              <div class="ai-icon-circle">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="28"
+                  height="28"
+                  viewBox="0 0 28 28"
+                  fill="none"
+                >
+                  <circle
+                    cx="14"
+                    cy="14"
+                    r="14"
+                    fill="#635BFF"
+                    fill-opacity="0.1"
+                  />
+                  <path
+                    d="M14 8L16.5 13H21.5L17.5 17L19 22L14 19.5L9 22L10.5 17L6.5 13H11.5L14 8Z"
+                    stroke="#635BFF"
+                    stroke-width="2"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </div>
+              <div class="ai-title-stack">
+                <div class="ai-main-title">Round summary</div>
+              </div>
+            </div>
+            <div id="ai-insights-container" class="ai-insights-content"></div>
+          </div>
+        </section>
+        <section id="breakdown-section">
+          <div class="table-container">
+            <p class="subsection-title">
+              Cap table after <span class="display-round-name"></span>
+            </p>
+            <div class="table-wrapper-responsive">
+              <table>
+                <thead>
+                  <tr>
+                    <th class="col-name">Category</th>
+                    <th class="col-shares-pre">Shares (Before)</th>
+                    <th class="col-shares-post">Shares (After)</th>
+                    <th
+                      class="text-right text-muted font-medium py-3 px-4 col-pct-pre"
+                    >
+                      % (Before)
+                    </th>
+                    <th
+                      class="text-right text-brand font-bold py-3 px-4 col-pct-post"
+                    >
+                      % (After)
+                    </th>
+                    <th
+                      class="text-right text-muted font-medium py-3 px-4 hide-on-mobile col-pps"
+                    >
+                      PPS
+                    </th>
+                  </tr>
+                </thead>
+                <tbody id="post-round-table"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- SVG Sprite -->
+    <svg style="display: none">
+      <symbol
+        id="icon-plus"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <line x1="12" y1="5" x2="12" y2="19"></line>
+        <line x1="5" y1="12" x2="19" y2="12"></line>
+      </symbol>
+      <symbol
+        id="icon-trash"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <polyline points="3 6 5 6 21 6"></polyline>
+        <path
+          d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+        ></path>
+      </symbol>
+      <symbol
+        id="icon-error"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="8" x2="12" y2="12"></line>
+        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+      </symbol>
+      <symbol
+        id="icon-download"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4"></path>
+        <polyline points="7 10 12 15 17 10"></polyline>
+        <line x1="12" y1="15" x2="12" y2="3"></line>
+      </symbol>
+      <symbol
+        id="icon-email"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path
+          d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"
+        ></path>
+        <polyline points="22,6 12,13 2,6"></polyline>
+      </symbol>
+    </svg>
+
+    <!-- Email Modal -->
+    <div id="email-modal" class="modal-overlay" style="display: none">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <div>
+            <h3 class="modal-title" id="modal-title">
+              Get a copy of ownership report on your email
+            </h3>
+          </div>
+          <button class="modal-close" onclick="hideEmailModal()">
+            &times;
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-form-grid">
+            <div class="input-group">
+              <label class="field-label">First name</label>
+              <input
+                type="text"
+                id="first-name-input"
+                class="input"
+                placeholder="First name"
+              />
+            </div>
+            <div class="input-group">
+              <label class="field-label">Last name</label>
+              <input
+                type="text"
+                id="last-name-input"
+                class="input"
+                placeholder="Last name"
+              />
+            </div>
+            <div class="input-group full-width">
+              <label class="field-label" id="recipient-label"
+                >Work email(s)</label
+              >
+              <div id="email-recipients-list">
+                <div class="recipient-row" id="recipient-row-0">
+                  <input
+                    type="email"
+                    class="input email-recipient-input"
+                    placeholder="work@company.com"
+                    required
+                  />
+                  <!-- Delete icon hidden for the first recipient -->
+                  <button
+                    class="btn-remove-recipient"
+                    style="visibility: hidden"
+                    type="button"
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <path
+                        d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"
+                      ></path>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <button
+                id="add-recipient-btn"
+                type="button"
+                class="btn-add-recipient"
+                onclick="addRecipient()"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                Add recipient
+              </button>
+              <span
+                id="email-error"
+                class="error-msg"
+                style="display: none"
+              ></span>
+            </div>
+            <div class="input-group full-width">
+              <label class="field-label">Company name</label>
+              <input
+                type="text"
+                id="company-input"
+                class="input"
+                placeholder="Company name"
+              />
+            </div>
+            <div class="checkbox-group no-pdf full-width">
+              <label class="checkbox-container">
+                <input type="checkbox" id="newsletter-checkbox" checked />
+                <span class="checkbox-label"
+                  >I'd like to receive news and updates from EquityList</span
+                >
+              </label>
+              <div class="checkbox-note">You can unsubscribe at anytime.</div>
+            </div>
+          </div>
+          <div class="modal-footer-actions">
+            <button
+              id="send-email-btn"
+              class="btn btn-primary w-full justify-center"
+              onclick="sendEmailWithPDF()"
+            >
+              <span id="send-btn-text">Email the report</span>
+              <div
+                id="send-btn-loader"
+                style="display: none"
+                class="flex items-center gap-2"
+              >
+                <span>Sending...</span>
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Templates -->
+    <template id="shareholder-card-template">
+      <div class="input-row-card">
+        <div class="row-card-header">
+          <input class="input flex-1 row-name" placeholder="Name" />
+          <button class="btn-trash row-trash-btn"></button>
+        </div>
+        <div class="row-card-grid-shareholder">
+          <div>
+            <label class="field-label row-field-label">Category</label>
+            <select class="select row-category">
+              <option value="Founder">Founder</option>
+              <option value="Option pool">Option pool</option>
+              <option value="Investor">Investor</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div>
+            <label class="field-label row-field-label">Shares</label>
+            <div class="flex items-center">
+              <input class="input row-input-right row-shares" type="text" />
+              <span class="input-suffix">shares</span>
+            </div>
+          </div>
+          <div class="pct-badge badge-fixed-height row-pct"></div>
+        </div>
+      </div>
+    </template>
+
+    <template id="safe-card-template">
+      <div class="input-row-card">
+        <div class="safe-card-header">
+          <input class="input safe-name-input" placeholder="New safe" />
+          <button class="btn-trash row-trash-btn"></button>
+        </div>
+        <div class="row-card-grid-safe">
+          <div>
+            <label class="field-label">Investment</label>
+            <div class="input-with-symbol">
+              <span class="input-symbol">$</span>
+              <input
+                class="input row-input-right safe-investment"
+                type="text"
+              />
+            </div>
+          </div>
+          <div>
+            <label class="field-label">Valuation cap</label>
+            <div class="input-with-symbol">
+              <span class="input-symbol">$</span>
+              <input class="input row-input-right safe-cap" type="text" />
+            </div>
+          </div>
+          <div>
+            <label class="field-label">Discount</label>
+            <div class="input-with-symbol-right">
+              <input class="input safe-discount-input" type="text" />
+              <span class="input-symbol">%</span>
+            </div>
+          </div>
+          <div>
+            <label class="field-label">Type</label>
+            <select class="select row-select safe-type">
+              <option value="post">Post-money</option>
+              <option value="pre">Pre-money</option>
+              <option value="mfn">MFN</option>
+            </select>
+          </div>
+        </div>
+        <div
+          class="safe-conversion-note"
+          style="
+            display: none;
+            font-size: 0.875rem;
+            color: #6b7280;
+            margin-top: 0.75rem;
+            font-style: italic;
+            padding: 0 0.5rem;
+          "
+        >
+          Note: When no valuation cap or discount is added, the SAFE converts at
+          the price round.
+        </div>
+        <div
+          class="safe-mfn-note"
+          style="
+            display: none;
+            font-size: 0.875rem;
+            color: #6b7280;
+            margin-top: 0.75rem;
+            font-style: italic;
+            padding: 0 0.5rem;
+          "
+        >
+          Note: In the absence of any subsequent post-money SAFE(s), the MFN
+          SAFE takes the pre-money valuation of the priced round.
+        </div>
+        <div
+          class="safe-mfn-discount-note"
+          style="
+            display: none;
+            font-size: 0.875rem;
+            color: #6b7280;
+            margin-top: 0.75rem;
+            font-style: italic;
+            padding: 0 0.5rem;
+          "
+        >
+          Note: In the absence of any subsequent post-money SAFE(s), the MFN
+          SAFE applies the discount to the pre-money valuation of the priced
+          round.
+        </div>
+        <div
+          class="safe-error-msg input-error-msg"
+          style="display: none; padding: 0 0.5rem; margin-top: 0.75rem"
+        ></div>
+      </div>
+    </template>
+
+    <template id="series-investor-template">
+      <div class="series-investor-row">
+        <input class="input flex-2 investor-name" placeholder="Name" />
+        <div class="input-with-symbol flex-1">
+          <span class="input-symbol">$</span>
+          <input class="input series-investor-input" type="text" />
+        </div>
+        <button class="btn-trash row-trash-btn"></button>
+      </div>
+    </template>
+
+    <template id="breakdown-row-template">
+      <tr class="group investor-row">
+        <td class="col-name">
+          <div class="flex-cell-content">
+            <span class="font-medium text-dark row-display-name"></span>
+            <span class="row-tags"></span>
+          </div>
+        </td>
+        <td class="text-right text-muted row-pre-shares col-shares-pre"></td>
+        <td
+          class="text-right font-medium text-dark row-post-shares col-shares-post"
+        ></td>
+        <td class="text-right text-muted row-pre-pct col-pct-pre"></td>
+        <td
+          class="text-right font-medium text-brand row-post-pct col-pct-post"
+        ></td>
+        <td class="text-right text-muted hide-on-mobile row-pps col-pps"></td>
+      </tr>
+    </template>
+    <!-- Toast Notification -->
+    <div
+      id="toast-notification"
+      class="toast-notification"
+      style="display: none"
+    ></div>
+    <script src="script.js"></script>
+    <script>
+      // Initialize the UI after scripts are loaded
+      window.addEventListener("DOMContentLoaded", () => {
+        if (typeof updateUI === "function") {
+          updateUI();
+        }
+      });
+    </script>
+  </body>
+</html>
