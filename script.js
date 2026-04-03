@@ -1720,17 +1720,11 @@ const prepareReportData = (companyName) => {
     // =========================================================================
     const preRound = buildEstimatedPreRoundCapTable(state.rowData);
 
-    const commonSharesTotalPre = preRound.total.shares;
-    const founderSharesPre = preRound.common
-        .filter((c) => c.category === "Founder")
-        .reduce((a, c) => a + c.shares, 0);
-    const totalFounderPctPre = commonSharesTotalPre > 0 ? founderSharesPre / commonSharesTotalPre : 0;
-
     // =========================================================================
     // SNAPSHOT 3: POST-ROUND
     // =========================================================================
     const rawSafes = state.rowData.filter(r => r.type === CapTableRowType.Safe);
-    const populatedSafes = populateSafeCaps(rawSafes);
+    const populatedSafes = populateSafeCaps(rawSafes, state.preMoney);
     const seriesInvs = state.rowData
         .filter(r => r.type === CapTableRowType.Series)
         .map(r => r.investment);
@@ -1748,6 +1742,22 @@ const prepareReportData = (companyName) => {
     );
 
     const pricedTable = buildPricedRoundCapTable(pricedConversion, state.rowData);
+
+    // Synchronize pre-round SAFE shares with post-round actuals (mirrors updateUI logic)
+    preRound.safes = preRound.safes.map(preSafe => {
+        const postSafe = pricedTable.safes.find(ps => ps.id === preSafe.id);
+        return postSafe ? { ...preSafe, shares: postSafe.shares } : preSafe;
+    });
+    preRound.total.shares = preRound.common.reduce((a, c) => a + (c.shares || 0), 0) +
+                            preRound.safes.reduce((a, s) => a + (s.shares || 0), 0);
+    preRound.common.forEach(c => c.ownershipPct = c.shares / preRound.total.shares);
+    preRound.safes.forEach(s => s.ownershipPct = s.shares / preRound.total.shares);
+
+    const commonSharesTotalPre = preRound.total.shares;
+    const founderSharesPre = preRound.common
+        .filter((c) => c.category === "Founder")
+        .reduce((a, c) => a + c.shares, 0);
+    const totalFounderPctPre = commonSharesTotalPre > 0 ? founderSharesPre / commonSharesTotalPre : 0;
 
     // Reuse the insight generator for the API summary_text
     const summariesArray = generateSummaryText(preRound, pricedTable, pricedConversion, state, totalFounderPctPre);
