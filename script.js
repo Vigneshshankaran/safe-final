@@ -12,6 +12,11 @@ const CapTableRowType = {
     RefreshedOptions: "refreshedOptions",
 };
 
+const CommonRowType = {
+    Shareholder: "shareholder",
+    UnusedOptions: "unusedOptions",
+};
+
 const DEFAULT_ROUNDING_STRATEGY = {
     roundShares: true,
     roundPPSPlaces: 8,
@@ -177,10 +182,15 @@ const getCapForSafe = (idx, safes, preMoneyValuation = 0) => {
  */
 const populateSafeCaps = (safeNotes, preMoneyValuation = 0) => {
     return safeNotes.map((safe, idx) => {
-        if (isMFN(safe)) {
-            return { ...safe, cap: getCapForSafe(idx, safeNotes, preMoneyValuation) };
+        const mfn = isMFN(safe);
+        if (mfn) {
+            return { 
+                ...safe, 
+                cap: getCapForSafe(idx, safeNotes, preMoneyValuation),
+                isMFN: true 
+            };
         }
-        return { ...safe };
+        return { ...safe, isMFN: false };
     });
 };
 
@@ -602,43 +612,66 @@ State management, updateUI, and chart rendering.
 ================================================================
 */
 const INITIAL_STATE = {
-    name: "Standalone Worksheet",
+    name: "EquityList Worksheet",
     roundName: "Series A",
     rowData: [
         {
             id: "1",
             type: "common",
             name: "Founder 1",
-            shares: 4000000,
+            shares: 7039184,
             category: "Founder",
         },
         {
             id: "2",
             type: "common",
             name: "Founder 2",
-            shares: 4000000,
+            shares: 9820291,
             category: "Founder",
         },
         {
             id: "UnusedOptionsPool",
             type: "common",
             name: "Option pool",
-            shares: 2000000,
+            shares: 882860,
             category: "Option pool",
         },
         {
             id: "3",
             type: "safe",
             name: "SAFE 1",
-            investment: 500000,
-            cap: 1000000,
-            discount: 0.2, 
+            investment: 123456,
+            cap: 462912420,
+            discount: 0,
+            conversionType: "mfn",
+        },
+        {
+            id: "4",
+            type: "safe",
+            name: "SAFE 2",
+            investment: 987650,
+            cap: 123456789,
+            discount: 0,
+            conversionType: "pre",
+        },
+        {
+            id: "5",
+            type: "safe",
+            name: "SAFE 3",
+            investment: 749210,
+            cap: 462912420,
+            discount: 0,
             conversionType: "post",
         },
-        { id: "4", type: "series", name: "Investor 1", investment: 2000000 },
+        { 
+            id: "6", 
+            type: "series", 
+            name: "Investor 1", 
+            investment: 48601837 
+        },
     ],
-    preMoney: 10000000,
-    targetOptionsPool: null,
+    preMoney: 100000000,
+    targetOptionsPool: 10,
     pricedRounds: 1, 
 };
 
@@ -1435,55 +1468,6 @@ const renderBarChart = (preFounderPct, postFounderPct) => {
     });
 };
 
-const generateSummaryText = (preRound, postRound, pricedConversion, state, postSafeFounderPct) => {
-    const roundName = state.roundName || "priced round";
-    const newMoneyRaised = pricedConversion.totalSeriesInvestment;
-    const preMoney = state.preMoney;
-    
-    // 1. Calculate the actual original founder percentage (strictly pre-SAFE/pre-funding)
-    // to detect if majority control is lost across the entire modeling journey.
-    const initialCommonRows = state.rowData.filter(r => r.type === CapTableRowType.Common);
-    const initialTotalS = initialCommonRows.reduce((a, r) => a + r.shares, 0);
-    const initialFounderS = initialCommonRows
-        .filter(r => r.category === "Founder")
-        .reduce((a, r) => a + r.shares, 0);
-    const originalFounderPct = initialTotalS > 0 ? initialFounderS / initialTotalS : 0;
-
-    const foundersPost = postRound.common.filter((c) => c.category === "Founder");
-    const totalFounderPctPost = foundersPost.reduce((a, f) => a + f.ownershipPct, 0);
-    
-    // totalFounderPctPre here refers to the state "before this round" (Post-SAFE)
-    const totalFounderPctPre = postSafeFounderPct !== undefined ? postSafeFounderPct : 0;
-
-    const safesCount = state.rowData.filter(r => r.type === CapTableRowType.Safe).length;
-    const totalSafeInvestment = state.rowData
-        .filter(r => r.type === CapTableRowType.Safe)
-        .reduce((sum, s) => sum + s.investment, 0);
-
-    const summaries = [];
-    
-    summaries.push(`You are modeling a ${roundName} round raising ${formatUSDWithCommas(newMoneyRaised)} at a ${formatUSDWithCommas(preMoney)} pre-money valuation. Founder ownership changes from ${safeFormatPercent(originalFounderPct)} (initially) to ${safeFormatPercent(totalFounderPctPost)} after all conversions.`);
-    
-    if (safesCount > 0) {
-        summaries.push(`${safesCount} SAFE${safesCount > 1 ? 's' : ''} totaling ${formatUSDWithCommas(totalSafeInvestment)} will convert.`);
-    }
-    
-    // Logic: If founders started with majority (>50%) and ended without it (<50%), show warning.
-    // We check against the original founder percentage because SAFEs might have already 
-    // pushed them close to the line, and the user expects a warning if the total process loses majority.
-    const numericPostPct = Number(totalFounderPctPost);
-    if (originalFounderPct >= 0.5 && numericPostPct < 0.49995) {
-        summaries.push(`Founders have dropped below 50% majority ownership in this modeling scenario.`);
-    }
-    
-    // Only show pool top-up if a positive target was actually specified
-    const targetPool = Number(state.targetOptionsPool);
-    if (targetPool > 0 && pricedConversion.increaseInOptionsPool > 0) {
-        summaries.push(`The model includes an option pool top-up to reach the target of ${targetPool}%, which issued additional shares pre ${roundName}.`);
-    }
-    
-    return summaries;
-};
 
 let aiLoadingTimeout = null;
 
@@ -1511,31 +1495,42 @@ const renderAIAdvisor = (preRound, postRound, pricedConversion, state, strictlyP
         </div>
     `;
 
-    aiLoadingTimeout = setTimeout(() => {
-        const summaries = generateSummaryText(preRound, postRound, pricedConversion, state, strictlyPreFounderPct);
-        const roundName = state.roundName || "priced round";
-        
-        // Convert plain text summaries to styled HTML for the UI
-        const htmlInsights = summaries.map(text => {
-            // Apply bold styling to numbers/money and ownership percentages
-            let styled = text
-                .replace(/(\$[\d,]+)/g, '<strong style="color: #0d0a40; font-weight: 600; font-family: \'Inter\', sans-serif;">$1</strong>')
-                .replace(/(\d+\.\d+%)|(\d+%)|(\d+ shares)/g, '<strong style="color: #0d0a40; font-weight: 600; font-family: \'Inter\', sans-serif;">$1</strong>')
-                .replace(new RegExp(roundName, 'g'), `<strong style="color: #0d0a40; font-weight: 600; font-family: 'Inter', sans-serif;">${roundName}</strong>`);
-            
-            if (text.includes("dropped below 50%")) {
-                return `
-                    <div class="insight-item" style="color: #0d0a40; margin: 0 0 1.25rem 0; font-family: 'Inter', sans-serif;">
-                        <div class="insight-danger" style="color: #dc2626; font-weight: 500; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 20px;">${text}</div>
-                    </div>
-                `;
-            }
-            
-            return `<p style="margin: 0 0 1.25rem 0; font-family: 'Inter', sans-serif; line-height: 1.6; font-size: 14px; color: #374151;">${styled}</p>`;
-        });
 
-        container.innerHTML = htmlInsights.join('');
-    }, 600);
+    aiLoadingTimeout = setTimeout(() => {
+        const insights = [];
+        const investment = ` <strong style="color: #0d0a40; font-weight: 600; font-family: 'Inter', sans-serif;">${formatUSDWithCommas(newMoneyRaised)}</strong>`;
+        const preMoneyStr = ` <strong style="color: #0d0a40; font-weight: 600; font-family: 'Inter', sans-serif;">${formatUSDWithCommas(preMoney)}</strong>`;
+
+        const foundersPost = postRound.common.filter((c) => c.category === "Founder");
+        const totalFounderPctPost = foundersPost.reduce((a, f) => a + f.ownershipPct, 0);
+        const totalFounderPctPre = strictlyPreFounderPct !== undefined ? strictlyPreFounderPct : 0;
+
+        insights.push(`<p style="margin: 0 0 1.25rem 0; font-family: 'Inter', sans-serif; line-height: 1.6; font-size: 14px; color: #374151;">You are modeling a <strong style="color: #0d0a40; font-weight: 600; font-family: 'Inter', sans-serif;">${state.roundName || "priced round"}</strong> round raising ${investment} at a ${preMoneyStr} pre-money valuation. Founder ownership changes from <strong style="color: #0d0a40; font-weight: 600; font-family: 'Inter', sans-serif;">${safeFormatPercent(totalFounderPctPre)}</strong> to <strong style="color: #0d0a40; font-weight: 600; font-family: 'Inter', sans-serif;">${safeFormatPercent(totalFounderPctPost)}</strong> post ${state.roundName || "priced round"}.</p>`);
+
+        const safesCount = state.rowData.filter(r => r.type === CapTableRowType.Safe).length;
+        const totalSafeInvestment = state.rowData
+            .filter(r => r.type === CapTableRowType.Safe)
+            .reduce((sum, s) => sum + s.investment, 0);
+
+        if (safesCount > 0) {
+            insights.push(`<p style="margin: 0 0 1.25rem 0; font-family: 'Inter', sans-serif; line-height: 1.6; font-size: 14px; color: #374151;">${safesCount} SAFE${safesCount > 1 ? 's' : ''} totaling <strong style="color: #0d0a40; font-weight: 600; font-family: 'Inter', sans-serif;">${formatUSDWithCommas(totalSafeInvestment)}</strong> will convert.</p>`);
+        }
+        if (totalFounderPctPre >= 0.5 && totalFounderPctPost < 0.5) {
+            insights.push(`
+                <div class="insight-item" style="color: #0d0a40; margin: 0 0 1.25rem 0; font-family: 'Inter', sans-serif;">
+                    <div class="insight-danger" style="color: #dc2626; font-weight: 500; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 20px;">Founders have dropped below 50% majority ownership in this round.</div>
+                </div>
+            `);
+        }
+        if (pricedConversion.increaseInOptionsPool > 0) {
+            insights.push(`
+                <div class="insight-item" style="color: #0d0a40; margin: 0 0 1.25rem 0; font-family: 'Inter', sans-serif;">
+                    <div style="font-family: 'Inter', sans-serif; line-height: 1.6; font-size: 14px; color: #374151;">The model includes an option pool top-up to reach the target of <strong style="color: #0d0a40; font-weight: 600; font-family: 'Inter', sans-serif;">${state.targetOptionsPool}%</strong>, which issued additional shares pre ${state.roundName || "priced round"}.</div>
+                </div>
+            `);
+        }
+        container.innerHTML = insights.join("");
+    }, 1000);
 };
 
 window.updateRow = (id, field, value) => {
@@ -1556,7 +1551,7 @@ window.updateRow = (id, field, value) => {
 };
 
 window.addRow = (type) => {
-    const id = Date.now().toString() + "-" + Math.random().toString(36).substring(2, 11);
+    const id = Date.now().toString() + "-" + Math.random().toString(36).substr(2, 9);
     if (type === "common") {
         state.rowData.push({
             id,
@@ -1662,11 +1657,9 @@ window.initSAFEApp = () => {
     }
 };
 
-document.addEventListener("DOMContentLoaded", () => {
-    if (!window.manualInitSAFE) {
-        window.initSAFEApp();
-    }
-});
+// No longer adding a separate DOMContentLoaded listener here as it exists in index.html,
+// causing updateUI to run twice.
+
 
 /* 
 ================================================================
@@ -1675,15 +1668,53 @@ Email, Toast, and PDF generation logic.
 ================================================================
 */
 const BASE_URL = "https://app.equitylist.co";
-const API_KEY = "2072a33203bd95a346196f8daf0d5cb842ac24f1c4c4becc8a40be764e4e2a41"; // Add your API key here
+const API_KEY = "2072a33203bd95a346196f8daf0d5cb842ac24f1c4c4becc8a40be764e4e2a41";
+
+async function safeFetch(endpoint, options = {}) {
+    const url = `${BASE_URL}${endpoint}`;
+    const defaultHeaders = {
+        'Content-Type': 'application/json',
+        'x-api-key': API_KEY,
+        'Authorization': `Bearer ${API_KEY}`
+    };
+
+    console.log(`[API Request] ${url}`, options);
+    const response = await fetch(url, {
+        ...options,
+        headers: {
+            ...defaultHeaders,
+            ...options.headers
+        }
+    });
+
+    console.log(`[API Response] Status: ${response.status}`);
+
+    if (response.status === 401) {
+        throw new Error("Invalid API key (401)");
+    }
+
+    if (!response.ok) {
+        const errText = await response.text();
+        console.error(`[API Error] ${errText}`);
+        throw new Error(`Server returned error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log(`[API Success] Data:`, data);
+
+    if (!data.success) {
+        throw new Error(data.message || "Request failed");
+    }
+
+    return data;
+}
 
 function showToast(message, type = 'success') {
     const toast = document.getElementById('toast-notification');
-    if (!toast) return;
     toast.textContent = message;
     toast.className = `toast-notification ${type}`;
     toast.style.display = 'block';
-
+    
     setTimeout(() => {
         toast.style.display = 'none';
     }, 4000);
@@ -1694,8 +1725,243 @@ function validateEmail(email) {
     return re.test(email);
 }
 
+// Duplicate modal function removed (already defined at line 2127)
 
-const prepareReportData = (companyName) => {
+
+const normalizeForCapture = (element) => {
+    const original = {
+        position: element.style.position,
+        top: element.style.top,
+        height: element.style.height,
+        maxHeight: element.style.maxHeight,
+        overflow: element.style.overflow,
+        overflowY: element.style.overflowY,
+        width: element.style.width,
+        boxShadow: element.style.boxShadow,
+        borderRadius: element.style.borderRadius
+    };
+
+    const elementsToHide = element.querySelectorAll('.no-pdf, button, .btn-trash, .row-trash-btn');
+    elementsToHide.forEach(el => {
+        el.setAttribute('data-original-display', el.style.display || '');
+        el.style.display = 'none';
+    });
+    
+    element.style.position = 'static';
+    element.style.top = 'auto';
+    element.style.height = 'auto';
+    element.style.maxHeight = 'none';
+    element.style.overflow = 'visible';
+    element.style.overflowY = 'visible';
+    element.style.width = '100%';
+    element.style.boxShadow = 'none';
+    element.style.borderRadius = '0';
+    
+    return original;
+};
+
+const restoreAfterCapture = (element, original) => {
+    const elementsToRestore = element.querySelectorAll('.no-pdf, button, .btn-trash, .row-trash-btn');
+    elementsToRestore.forEach(el => {
+        el.style.display = el.getAttribute('data-original-display') || '';
+        el.removeAttribute('data-original-display');
+    });
+
+    Object.assign(element.style, original);
+};
+
+const checkPDFDependencies = () => {
+    const hasJsPDF = !!(window.jspdf && window.jspdf.jsPDF);
+    const hasHtml2Canvas = !!window.html2canvas;
+
+    if (!hasJsPDF) {
+        alert("Pdf download failed: jsPDF library not found. Please ensure the jsPDF script is included in your Webflow page settings.");
+        console.error("Dependency Missing: jsPDF");
+    }
+    if (!hasHtml2Canvas) {
+        alert("Pdf download failed: html2canvas library not found. Please ensure the html2canvas script is included in your Webflow page settings.");
+        console.error("Dependency Missing: html2canvas");
+    }
+    return hasJsPDF && hasHtml2Canvas;
+};
+
+async function generateCombinedPDF(quality = 0.8, scale = 1.5) {
+    if (!checkPDFDependencies()) return null;
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF('p', 'mm', 'a4');
+    
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 15;
+    const contentWidth = pageWidth - (margin * 2);
+    let yPos = margin;
+    
+    const primaryNavy = '#0d0a40';
+    const textMuted = '#444266';
+    
+    doc.setFontSize(20);
+    doc.setTextColor(primaryNavy);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Calculator Inputs', margin, yPos);
+    yPos += 8;
+    
+    doc.setFontSize(8);
+    doc.setTextColor(textMuted);
+    doc.setFont('helvetica', 'normal');
+    const timestamp = new Date().toLocaleString('en-US', {
+        year: 'numeric', month: 'long', day: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+    });
+    doc.text(`Generated on ${timestamp}`, margin, yPos);
+    yPos += 10;
+
+    const inputConfigs = [
+        { id: 'cap-table-section', bodyId: 'shareholders-body', footerId: 'cap-table-footer' },
+        { id: 'safes-section', bodyId: 'safes-body', footerId: null },
+        { id: 'priced-round-section', bodyId: null, footerId: null, skipFooter: true }
+    ];
+
+    for (const config of inputConfigs) {
+        const section = document.getElementById(config.id);
+        if (!section) continue;
+
+        const header = section.querySelector('.card-header');
+        if (header) {
+            const hStyles = normalizeForCapture(header);
+            const hCanvas = await html2canvas(header, { backgroundColor: '#ffffff', scale: scale });
+            restoreAfterCapture(header, hStyles);
+            const hHeight = (hCanvas.height * contentWidth) / hCanvas.width;
+            if (yPos + hHeight > pageHeight - margin) { doc.addPage(); yPos = margin; }
+            doc.addImage(hCanvas.toDataURL('image/jpeg', quality), 'JPEG', margin, yPos, contentWidth, hHeight);
+            yPos += hHeight + 2;
+        }
+
+        if (config.bodyId) {
+            const body = document.getElementById(config.bodyId);
+            if (body) {
+                for (let row of body.children) {
+                    const rStyles = normalizeForCapture(row);
+                    const rCanvas = await html2canvas(row, { backgroundColor: '#ffffff', scale: scale });
+                    restoreAfterCapture(row, rStyles);
+                    const rHeight = (rCanvas.height * contentWidth) / rCanvas.width;
+                    if (yPos + rHeight > pageHeight - margin) { doc.addPage(); yPos = margin; }
+                    doc.addImage(rCanvas.toDataURL('image/jpeg', quality), 'JPEG', margin, yPos, contentWidth, rHeight);
+                    yPos += rHeight + 2;
+                }
+            }
+        } else if (config.id === 'priced-round-section') {
+            const children = Array.from(section.children).filter(child => !child.classList.contains('card-header'));
+            
+            for (const child of children) {
+                const cStyles = normalizeForCapture(child);
+                const cCanvas = await html2canvas(child, { backgroundColor: '#ffffff', scale: scale });
+                restoreAfterCapture(child, cStyles);
+                const cHeight = (cCanvas.height * contentWidth) / cCanvas.width;
+                if (yPos + cHeight > pageHeight - margin) { doc.addPage(); yPos = margin; }
+                doc.addImage(cCanvas.toDataURL('image/jpeg', quality), 'JPEG', margin, yPos, contentWidth, cHeight);
+                yPos += cHeight + 2;
+            }
+        }
+
+        if (!config.skipFooter) {
+            const footer = config.footerId ? document.getElementById(config.footerId) : section.querySelector('.card-footer-total');
+            if (footer) {
+                const fStyles = normalizeForCapture(footer);
+                const fCanvas = await html2canvas(footer, { backgroundColor: '#ffffff', scale: scale });
+                restoreAfterCapture(footer, fStyles);
+                const fHeight = (fCanvas.height * contentWidth) / fCanvas.width;
+                if (yPos + fHeight > pageHeight - margin) { doc.addPage(); yPos = margin; }
+                doc.addImage(fCanvas.toDataURL('image/jpeg', quality), 'JPEG', margin, yPos, contentWidth, fHeight);
+                yPos += fHeight + 10;
+            }
+        } else {
+            yPos += 8;
+        }
+    }
+    
+    doc.addPage();
+    yPos = margin;
+
+    doc.setFontSize(20); doc.setTextColor(primaryNavy); doc.setFont('helvetica', 'bold');
+    doc.text('SAFE Calculator Results', margin, yPos);
+    yPos += 8;
+    
+    doc.setFontSize(8); doc.setTextColor(textMuted); doc.setFont('helvetica', 'normal');
+    doc.text(`Generated on ${timestamp}`, margin, yPos);
+    yPos += 10;
+    
+    const resultsCard = document.getElementById('results-card');
+    if (resultsCard) {
+        const cStyles = normalizeForCapture(resultsCard);
+        const cCanvas = await html2canvas(resultsCard, { backgroundColor: '#ffffff', scale: scale });
+        restoreAfterCapture(resultsCard, cStyles);
+        const cHeight = (cCanvas.height * contentWidth) / cCanvas.width;
+        if (yPos + cHeight > pageHeight - margin) { doc.addPage(); yPos = margin; }
+        doc.addImage(cCanvas.toDataURL('image/jpeg', quality), 'JPEG', margin, yPos, contentWidth, cHeight);
+        yPos += cHeight + 10;
+    }
+
+    const aiAdvisor = document.getElementById('ai-advisor-section');
+    if (aiAdvisor) {
+        const hStyles = normalizeForCapture(aiAdvisor);
+        const hCanvas = await html2canvas(aiAdvisor, { backgroundColor: '#ffffff', scale: scale });
+        restoreAfterCapture(aiAdvisor, hStyles);
+        const hHeight = (hCanvas.height * contentWidth) / hCanvas.width;
+        if (yPos + hHeight > pageHeight - margin) { doc.addPage(); yPos = margin; }
+        doc.addImage(hCanvas.toDataURL('image/jpeg', quality), 'JPEG', margin, yPos, contentWidth, hHeight);
+        yPos += hHeight + 10;
+    }
+
+    const breakdown = document.getElementById('breakdown-section');
+    if (breakdown) {
+        const title = breakdown.querySelector('.subsection-title');
+        if (title) {
+            const tStyles = normalizeForCapture(title);
+            const tCanvas = await html2canvas(title, { backgroundColor: '#ffffff', scale: scale });
+            restoreAfterCapture(title, tStyles);
+            const tHeight = (tCanvas.height * contentWidth) / tCanvas.width;
+            if (yPos + tHeight > pageHeight - margin) { doc.addPage(); yPos = margin; }
+            doc.addImage(tCanvas.toDataURL('image/jpeg', quality), 'JPEG', margin, yPos, contentWidth, tHeight);
+            yPos += tHeight + 2;
+        }
+
+        const table = breakdown.querySelector('table');
+        if (table) {
+            const thead = table.querySelector('thead');
+            if (thead) {
+                const thStyles = normalizeForCapture(thead);
+                const thCanvas = await html2canvas(thead, { backgroundColor: '#ffffff', scale: scale });
+                restoreAfterCapture(thead, thStyles);
+                const thHeight = (thCanvas.height * contentWidth) / thCanvas.width;
+                if (yPos + thHeight > pageHeight - margin) { doc.addPage(); yPos = margin; }
+                doc.addImage(thCanvas.toDataURL('image/jpeg', quality), 'JPEG', margin, yPos, contentWidth, thHeight);
+                yPos += thHeight;
+            }
+
+            const tbody = table.querySelector('tbody');
+            if (tbody) {
+                for (let row of tbody.children) {
+                    const rCanvas = await html2canvas(row, { backgroundColor: '#ffffff', scale: scale });
+                    const rHeight = (rCanvas.height * contentWidth) / rCanvas.width;
+                    if (yPos + rHeight > pageHeight - margin) { doc.addPage(); yPos = margin; }
+                    doc.addImage(rCanvas.toDataURL('image/jpeg', quality), 'JPEG', margin, yPos, contentWidth, rHeight);
+                    yPos += rHeight;
+                }
+            }
+        }
+    }
+    
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7);
+        doc.setTextColor('#9ca3af');
+        doc.text(`Page ${i} of ${pageCount}`, pageWidth / 2, pageHeight - 8, { align: 'center' });
+    }
+    return doc;
+}
+
+const prepareReportData = () => {
     const timestamp = new Date().toLocaleString('en-US', {
         year: 'numeric', month: 'long', day: 'numeric',
         hour: '2-digit', minute: '2-digit'
@@ -1710,24 +1976,8 @@ const prepareReportData = (companyName) => {
     const founderDilution = getVal('founder-dilution-val');
     const postMoney = getVal('post-money-val');
 
-    const seriesInvestmentOnlyVal = state.rowData
-        .filter(r => r.type === CapTableRowType.Series)
-        .reduce((sum, r) => sum + (r.investment || 0), 0);
-    const totalSeriesRaised = formatUSDWithCommas(seriesInvestmentOnlyVal);
-
     // =========================================================================
-    // SNAPSHOT 2: PRE-ROUND (Post-SAFE)
-    // =========================================================================
-    const preRound = buildEstimatedPreRoundCapTable(state.rowData);
-
-    const commonSharesTotalPre = preRound.total.shares;
-    const founderSharesPre = preRound.common
-        .filter((c) => c.category === "Founder")
-        .reduce((a, c) => a + c.shares, 0);
-    const totalFounderPctPre = commonSharesTotalPre > 0 ? founderSharesPre / commonSharesTotalPre : 0;
-
-    // =========================================================================
-    // SNAPSHOT 3: POST-ROUND
+    // SNAPSHOT 3: POST-ROUND (Must calculate first for sync)
     // =========================================================================
     const rawSafes = state.rowData.filter(r => r.type === CapTableRowType.Safe);
     const populatedSafes = populateSafeCaps(rawSafes);
@@ -1749,49 +1999,70 @@ const prepareReportData = (companyName) => {
 
     const pricedTable = buildPricedRoundCapTable(pricedConversion, state.rowData);
 
-    // Reuse the insight generator for the API summary_text
-    const summariesArray = generateSummaryText(preRound, pricedTable, pricedConversion, state, totalFounderPctPre);
-    const plainTextSummary = summariesArray.join(' ');
+    // =========================================================================
+    // SNAPSHOT 2: PRE-ROUND (Post-SAFE) - SYNCHRONIZED
+    // =========================================================================
+    const preRound = buildEstimatedPreRoundCapTable(state.rowData);
+    
+    // Crucial: Synchronize shares with priced round solver to avoid mismatch between UI and PDF
+    preRound.safes = preRound.safes.map(preSafe => {
+        const postSafe = pricedTable.safes.find(ps => ps.id === preSafe.id);
+        return postSafe ? { ...preSafe, shares: postSafe.shares } : preSafe;
+    });
+
+    preRound.total.shares = preRound.common.reduce((a, c) => a + (c.shares || 0), 0) + 
+                            preRound.safes.reduce((a, s) => a + (s.shares || 0), 0);
+
+    const commonSharesTotalPre = preRound.total.shares;
+    const founderSharesPre = preRound.common
+        .filter((c) => c.category === "Founder")
+        .reduce((a, c) => a + c.shares, 0);
+    const totalFounderPctPre = commonSharesTotalPre > 0 ? founderSharesPre / commonSharesTotalPre : 0;
+    const ownershipPre = safeFormatPercent(totalFounderPctPre);
+
+    // AI Insight text generation for summary_text field
+    const newMoneyRaised = pricedConversion.totalSeriesInvestment;
+    const totalSafeInvestment = rawSafes.reduce((sum, s) => sum + s.investment, 0);
+    const investmentStr = formatUSDWithCommas(newMoneyRaised);
+    const preMoneyStr = formatUSDWithCommas(state.preMoney);
+    
+    let summaryText = `You are modeling a ${state.roundName || "priced round"} round raising ${investmentStr} at a ${preMoneyStr} pre-money valuation. Founder ownership changes from ${ownershipPre} (initially) to ${founderOwnership} after all conversions.`;
+    if (rawSafes.length > 0) {
+        summaryText += ` ${rawSafes.length} SAFE${rawSafes.length > 1 ? 's' : ''} totaling ${formatUSDWithCommas(totalSafeInvestment)} will convert.`;
+    }
+    if (pricedConversion.increaseInOptionsPool > 0) {
+        summaryText += ` The model includes an option pool top-up to reach the target of ${state.targetOptionsPool}%, which issued additional shares pre ${state.roundName || "priced round"}.`;
+    }
 
     const rows = [
-        ...pricedTable.common.map(r => ({
-            name: r.name,
-            preShares: preRound.common.find(pr => pr.id === r.id)?.shares || r.shares,
-            postShares: r.shares,
-            badge: null,
-            isFounder: r.category === "Founder",
-            isSafe: false,
-            isInvestor: false
-        })),
+        ...pricedTable.common.map(r => {
+            const isFounder = r.category === "Founder";
+            return {
+                name: r.name,
+                preShares: preRound.common.find(pr => pr.id === r.id)?.shares || r.shares,
+                postShares: r.shares,
+                badge: isFounder ? "Founder" : null,
+                badgeStyle: isFounder ? "border-purple-400 text-purple-600 bg-purple-50" : "",
+                isFounder: isFounder,
+                isSafe: false,
+                isInvestor: false
+            };
+        }),
         ...pricedTable.safes.map(r => {
-            let badge = null;
-            let badgeStyle = "";
             const safeMatch = populatedSafes.find(s => s.id === r.id);
-            
-            if (isMFN(r)) {
-                badge = "MFN SAFE";
-                badgeStyle = "border-[#fecaca] bg-[#fee2e2] text-[#991b1b]";
-            } else if (r.conversionType === "pre") {
-                badge = "Pre-money SAFE";
-                badgeStyle = "border-[#fde68a] bg-[#fef3c7] text-[#92400e]";
-            } else if (r.conversionType === "post") {
-                badge = "Post-money SAFE";
-                badgeStyle = "border-[#a7f3d0] bg-[#d1fae5] text-[#065f46]";
-            }
-            
             return {
                 name: r.name,
                 preShares: preRound.safes.find(ps => ps.id === r.id)?.shares || 0,
                 postShares: r.shares,
-                badge: badge,
-                badgeStyle: badgeStyle,
+                badge: safeMatch.isMFN ? "MFN SAFE" : (safeMatch.conversionType === "pre" ? "Pre-money SAFE" : "Post-money SAFE"),
+                badgeStyle: safeMatch.isMFN ? "border-[#FECACA] bg-[#FEE2E2] text-[#991B1B]" : (safeMatch.conversionType === "pre" ? "border-[#FDE68A] bg-[#FEF3C7] text-[#92400E]" : "border-[#A7F3D0] bg-[#D1FAE5] text-[#065F46]"),
                 isFounder: false,
                 isSafe: true,
                 isInvestor: false,
                 investment: r.investment,
                 cap: safeMatch?.cap || 0,
-                discount: r.discount ? (r.discount * 100).toFixed(0) + "%" : "None",
-                type: r.conversionType ? r.conversionType.charAt(0).toUpperCase() + r.conversionType.slice(1) + "-money" : "N/A"
+                discount: safeMatch.discount ? (safeMatch.discount * 100).toFixed(0) + "%" : "None",
+                type: safeMatch.conversionType === "mfn" ? "MFN-money" : (safeMatch.conversionType ? safeMatch.conversionType.charAt(0).toUpperCase() + safeMatch.conversionType.slice(1) + "-money" : "N/A")
             };
         }),
         ...pricedTable.series.map(r => ({
@@ -1810,39 +2081,28 @@ const prepareReportData = (companyName) => {
     if (pricedTable.refreshedOptionsPool && pricedTable.refreshedOptionsPool.shares > 0) {
         const preOptions = unusedOptionsValue;
         const postOptions = pricedTable.refreshedOptionsPool.shares;
+        const isTopUp = postOptions > preOptions + 1;
         
-        let badge = null;
-        let badgeStyle = "";
-        
-        if (postOptions > preOptions + 1) {
-            badge = "Pool top-up";
-            badgeStyle = "border-[#c7d2fe] bg-[#e0e7ff] text-[#3730a3]";
-        }
-
         rows.push({
-            name: "Option Pool",
+            name: "Option pool",
             preShares: preOptions,
             postShares: postOptions,
-            badge: badge || "ESOP",
-            badgeStyle: badgeStyle,
+            badge: isTopUp ? "Pool top-up" : "ESOP",
+            badgeStyle: isTopUp ? "border-[#C7D2FE] bg-[#E0E7FF] text-[#3730A3]" : "border-yellow-400 text-yellow-600 bg-yellow-50",
             isFounder: false,
             isSafe: false,
             isInvestor: false
         });
     }
 
-    const ownershipPre = safeFormatPercent(totalFounderPctPre);
-
-    const targetPoolVal = Number(state.targetOptionsPool);
-    const optionPoolDisplay = targetPoolVal > 0 ? targetPoolVal + "%" : "";
-
     return {
-        companyName: companyName || "My Company",
-        roundName: state.roundName || "priced round",
+        valuation: state.preMoney,
+        raised: newMoneyRaised, // Fix: Changed from totalRaisedVal to newMoneyRaised to only count priced round investment
+        safeAmount: totalSafeInvestment,
         timestamp: timestamp,
-        optionPool: optionPoolDisplay,
-        safeAmount: state.rowData.filter(r => r.type === CapTableRowType.Safe).reduce((sum, r) => sum + (r.investment || 0), 0),
-        summary_text: plainTextSummary.trim(), // Added for the backend to use as the primary summary
+        optionPool: state.targetOptionsPool + "%",
+        roundName: state.roundName || "priced round",
+        summary_text: summaryText,
         summary: {
             ownershipPre: ownershipPre,
             ownershipPost: founderOwnership,
@@ -1850,7 +2110,7 @@ const prepareReportData = (companyName) => {
             postMoney: postMoney,
             pricePerShare: getVal('round-pps-val'),
             totalShares: getVal('total-post-shares-val'),
-            totalRaised: totalSeriesRaised
+            totalRaised: formatUSDWithCommas(newMoneyRaised) // Match totalRaised string to new investment only
         },
         rows: rows
     };
@@ -1858,27 +2118,17 @@ const prepareReportData = (companyName) => {
 
 window.downloadPDF = async function() {
     try {
+        console.log("Starting PDF download flow...");
         showToast('Generating report...', 'success');
-        const reportData = prepareReportData();
-        const response = await fetch(`${BASE_URL}/api/v1/safe_calculator/generate_pdf`, {
+        const report_data = prepareReportData();
+
+        console.log("Fetching from backend...");
+        const result = await safeFetch('/api/v1/safe_calculator/generate_pdf', {
             method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'X-API-KEY': API_KEY
-            },
-            body: JSON.stringify({ report_data: reportData })
+            body: JSON.stringify({ report_data })
         });
 
-        if (response.status === 401) {
-            throw new Error("Invalid API key");
-        }
-
-        if (!response.ok) {
-            const errText = await response.text();
-            throw new Error(`Server responded with ${response.status}: ${errText}`);
-        }
-
-        const result = await response.json();
+        console.log("Response received from backend: Success");
 
         if (result.success) {
             const pdfBase64 = result.pdfBase64;
@@ -1900,8 +2150,6 @@ window.downloadPDF = async function() {
             URL.revokeObjectURL(url);
 
             showToast('Report downloaded!', 'success');
-        } else {
-            throw new Error(result.message || "Failed to generate PDF");
         }
     } catch (error) {
         console.error("PDF Download Error:", error);
@@ -2045,34 +2293,20 @@ window.sendEmailWithPDF = async function() {
     }
     
     try {
-        const reportData = prepareReportData(company);
+        const report_data = prepareReportData();
         const primaryEmail = emails[0];
-        
-        // UseleadData as per guide
         const leadData = {
-            firstName: firstName || 'User',
+            firstName: firstName || 'there',
             lastName: lastName,
             companyName: company,
             subscribe: subscribe
         };
 
         if (modalMode === 'download') {
-            const response = await fetch(`${BASE_URL}/api/v1/safe_calculator/generate_pdf`, {
+            const result = await safeFetch('/api/v1/safe_calculator/generate_pdf', {
                 method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'X-API-KEY': API_KEY
-                },
-                body: JSON.stringify({ 
-                    report_data: reportData, 
-                    leadData: leadData, 
-                    to_email: primaryEmail 
-                })
+                body: JSON.stringify({ report_data, leadData: leadData, to_email: primaryEmail })
             });
-
-            if (response.status === 401) throw new Error("Invalid API key");
-            if (!response.ok) throw new Error('Failed to generate PDF');
-            const result = await response.json();
             
             if (result.success) {
                 const byteCharacters = atob(result.pdfBase64);
@@ -2092,51 +2326,27 @@ window.sendEmailWithPDF = async function() {
                 URL.revokeObjectURL(url);
                 showToast('Report downloaded!', 'success');
                 hideEmailModal();
-            } else {
-                throw new Error(result.message);
             }
         } else {
             showToast('Sending...', 'success');
-            // Use a redundant payload for compatibility with both snake_case and camelCase backend handlers
-            const payload = {
-                to_email: emails.join(', '), 
-                report_data: reportData,
-                reportData: reportData, // Alias for backward compatibility
-                summaryData: { 
-                    firstName: firstName || 'User',
-                    founderOwnership: reportData.summary.ownershipPost,
-                    founderDilution: reportData.summary.dilution,
-                    postMoney: reportData.summary.postMoney,
-                    totalRaised: reportData.summary.totalRaised,
-                    // Redundant variants for template compatibility
-                    ownership_post: reportData.summary.ownershipPost,
-                    dilution: reportData.summary.dilution,
-                    post_money: reportData.summary.postMoney,
-                    total_raised: reportData.summary.totalRaised
-                }
-            };
-
-            const emailResponse = await fetch(`${BASE_URL}/api/v1/safe_calculator/send_email`, {
+            // Note: Currently sending to the first email in the list as per API spec
+            const result = await safeFetch('/api/v1/safe_calculator/send_email', {
                 method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'X-API-KEY': API_KEY
-                },
-                body: JSON.stringify(payload)
+                body: JSON.stringify({ 
+                    to_email: primaryEmail, 
+                    report_data, 
+                    summaryData: { firstName: leadData.firstName } 
+                })
             });
 
-            if (emailResponse.status === 401) throw new Error("Invalid API key");
-            const result = await emailResponse.json();
             if (result.success) {
                 hideEmailModal();
                 showToast('Email sent successfully!', 'success');
-            } else {
-                throw new Error(result.message);
             }
         }
     } catch (error) {
         console.error('Action Error:', error);
-        showToast(error.message || 'Error communicating with API', 'error');
+        showToast(error.message || 'Error occurred', 'error');
     } finally {
         sendBtn.disabled = false;
         btnText.style.display = 'inline';
@@ -2158,8 +2368,13 @@ document.addEventListener('click', function(event) {
 document.addEventListener('keydown', function(event) {
     if (event.key === 'Escape') {
         const modal = document.getElementById('email-modal');
-        if (modal && modal.style.display === 'flex') {
+        if (modal.style.display === 'flex') {
             hideEmailModal();
         }
     }
 });
+
+// Expose UI functions for external interaction
+window.updateUI = updateUI;
+window.updateGlobal = updateGlobal;
+
